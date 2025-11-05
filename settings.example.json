@@ -1,0 +1,16 @@
+{
+  "private": {
+    "github": {
+      "token": "your_github_token_here"
+    },
+    "mongodb": {
+      "url": "mongodb://localhost:3001/meteor"
+    },
+    "aws": {
+      "accessKeyId": "your_aws_access_key_here",
+      "secretAccessKey": "your_aws_secret_key_here",
+      "region": "us-east-1",
+      "s3Bucket": "github-rss-feeds"
+    }
+  }
+}
