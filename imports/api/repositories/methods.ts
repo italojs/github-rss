@@ -2,43 +2,101 @@ import { Meteor } from 'meteor/meteor';
 import { check } from 'meteor/check';
 import { Repositories } from './collection';
 import { Repository, FeedType, SearchResult } from '../types';
+import { uploadAllRSSToS3, getPresignedRSSUrl } from '../s3/upload';
+
+async function findRepositoryById(repositoryId: string): Promise<Repository | undefined> {
+  return await Repositories.findOneAsync({ _id: repositoryId });
+}
+
+async function findRepositoryByOwnerRepo(owner: string, repo: string): Promise<Repository | undefined> {
+  return await Repositories.findOneAsync({ 
+    owner: owner.toLowerCase(), 
+    repo: repo.toLowerCase() 
+  });
+}
+
+async function updateRepositoryStatus(
+  repositoryId: string, 
+  status: Repository['status'], 
+  additionalFields: Partial<Repository> = {}
+): Promise<number> {
+  const updateData = {
+    status,
+    lastUpdate: new Date(),
+    ...additionalFields
+  };
+  
+  return await Repositories.updateAsync(repositoryId, { $set: updateData });
+}
+
+async function generateRSSFeeds(repository: Repository): Promise<Record<FeedType, string>> {
+  // Generate feed URLs (will point to S3 presigned URLs)
+  const baseUrl = Meteor.absoluteUrl();
+  const repoPath = `${repository.owner}-${repository.repo}`;
+  const feeds: Record<FeedType, string> = {
+    issues: `${baseUrl}api/rss/${repoPath}/issues.xml`,
+    pullRequests: `${baseUrl}api/rss/${repoPath}/pullRequests.xml`,
+    discussions: `${baseUrl}api/rss/${repoPath}/discussions.xml`,
+    releases: `${baseUrl}api/rss/${repoPath}/releases.xml`
+  };
+  
+  
+  const feedTypes: FeedType[] = ['issues', 'pullRequests', 'releases'];
+  const rssContents: Record<string, string> = {};
+  
+  for (const feedType of feedTypes) {
+    try {
+      const githubData = await fetchGitHubData(repository.owner, repository.repo, feedType);
+      const rssContent = generateRSSWithGitHubData(repository, feedType, githubData);
+      
+      rssContents[feedType] = rssContent;
+    } catch (error: any) {
+      // Continue with other feeds
+    }
+  }
+  
+    
+  try {
+    const emptyDiscussionsRss = generateRSSWithGitHubData(repository, 'discussions', []);
+    
+    rssContents['discussions'] = emptyDiscussionsRss;
+  } catch (error: any) {
+    // Ignore discussions errors
+  }
+
+  try {
+    await uploadAllRSSToS3(repoPath, rssContents);
+  } catch (error: any) {
+    // Continue with API endpoint URLs on failure
+  }
+
+  return feeds;
+}
 
 Meteor.methods({
-  // Search for a repository by GitHub URL
   async 'repositories.search'(githubUrl: string): Promise<SearchResult> {
     check(githubUrl, String);
     
     const { owner, repo, fullUrl } = parseGitHubUrl(githubUrl);
-    
-    const existingRepo = await Repositories.findOneAsync({ 
-      owner: owner.toLowerCase(), 
-      repo: repo.toLowerCase() 
-    });
+    const existingRepo = await findRepositoryByOwnerRepo(owner, repo);
     
     return {
       found: !!existingRepo,
-      repository: existingRepo,
+      repository: existingRepo ?? undefined,
       parsedUrl: { owner, repo, fullUrl }
     };
   },
 
-  // Create a new repository entry (when user clicks "Generate RSS")
   async 'repositories.create'(githubUrl: string): Promise<string> {
     check(githubUrl, String);
     
     const { owner, repo, fullUrl } = parseGitHubUrl(githubUrl);
     
-    // Check if repository already exists
-    const existingRepo = await Repositories.findOneAsync({ 
-      owner: owner.toLowerCase(), 
-      repo: repo.toLowerCase() 
-    });
-    
+    const existingRepo = await findRepositoryByOwnerRepo(owner, repo);
     if (existingRepo) {
       throw new Meteor.Error('already-exists', 'Repository already exists in database');
     }
     
-    // Create new repository document
     const repositoryId = await Repositories.insertAsync({
       url: fullUrl,
       owner: owner.toLowerCase(),
@@ -50,7 +108,6 @@ Meteor.methods({
       error: undefined
     });
     
-    // Automatically start RSS generation
     Meteor.defer(async () => {
       try {
         await Meteor.callAsync('repositories.generateRSS', repositoryId);
@@ -62,16 +119,45 @@ Meteor.methods({
     return repositoryId;
   },
 
-  // Get repository feeds by ID
   async 'repositories.getFeeds'(repositoryId: string): Promise<Repository['feeds']> {
     check(repositoryId, String);
     
-    const repository = await Repositories.findOneAsync(repositoryId);
+    const repository = await findRepositoryById(repositoryId);
     if (!repository) {
       throw new Meteor.Error('not-found', 'Repository not found');
     }
     
     return repository.feeds;
+  },
+
+  async 'repositories.getPresignedRSSUrls'(repositoryId: string): Promise<Record<FeedType, string | null>> {
+    check(repositoryId, String);
+    
+    const repository = await findRepositoryById(repositoryId);
+    if (!repository) {
+      throw new Meteor.Error('not-found', 'Repository not found');
+    }
+
+    const repoPath = `${repository.owner}-${repository.repo}`;
+    const feedTypes: FeedType[] = ['issues', 'pullRequests', 'discussions', 'releases'];
+    
+    const presignedUrls: Record<FeedType, string | null> = {
+      issues: null,
+      pullRequests: null,
+      discussions: null,
+      releases: null
+    };
+
+    for (const feedType of feedTypes) {
+      try {
+        const presignedUrl = await getPresignedRSSUrl(repoPath, feedType);
+        presignedUrls[feedType] = presignedUrl;
+      } catch (error: any) {
+        presignedUrls[feedType] = null;
+      }
+    }
+    
+    return presignedUrls;
   },
 
   // Update repository status (used by cron job)
@@ -84,15 +170,11 @@ Meteor.methods({
     check(repositoryId, String);
     check(status, String);
     
-    const updateData: any = {
-      status,
-      lastUpdate: new Date()
-    };
+    const additionalFields: Partial<Repository> = {};
+    if (feeds) additionalFields.feeds = feeds;
+    if (error) additionalFields.error = error;
     
-    if (feeds) updateData.feeds = feeds;
-    if (error) updateData.error = error;
-    
-    return await Repositories.updateAsync(repositoryId, { $set: updateData });
+    return await updateRepositoryStatus(repositoryId, status, additionalFields);
   },
 
   // Get all repositories that need RSS generation (for cron job)
@@ -115,95 +197,26 @@ Meteor.methods({
   async 'repositories.generateRSS'(repositoryId: string) {
     check(repositoryId, String);
     
-    const repository = await Repositories.findOneAsync({ _id: repositoryId });
+    const repository = await findRepositoryById(repositoryId);
     if (!repository) {
       throw new Meteor.Error('repository-not-found', 'Repository not found');
     }
     
     try {
       // Update status to generating
-      await Repositories.updateAsync(repositoryId, {
-        $set: { 
-          status: 'generating',
-          lastUpdate: new Date()
-        }
-      });
+      await updateRepositoryStatus(repositoryId, 'generating');
       
-      // Generate RSS feeds
-      const baseUrl = Meteor.absoluteUrl();
-      const repoPath = `${repository.owner}-${repository.repo}`;
-      const feeds: Record<FeedType, string> = {
-        issues: `${baseUrl}rss/${repoPath}/issues.xml`,
-        pullRequests: `${baseUrl}rss/${repoPath}/pullRequests.xml`,
-        discussions: `${baseUrl}rss/${repoPath}/discussions.xml`,
-        releases: `${baseUrl}rss/${repoPath}/releases.xml`
-      };
-      
-      // Create RSS files
-      const fs = require('fs');
-      const path = require('path');
-      
-      // TODO: Future enhancement - migrate to S3 storage
-      // Save locally to public/rss directory
-      const publicPath = path.join(process.cwd(), 'public');
-      
-      // Use owner-repo format to avoid conflicts (e.g., facebook-react, microsoft-react)
-      const repoFolder = `${repository.owner}-${repository.repo}`;
-      const rssDir = path.join(publicPath, 'rss', repoFolder);
-      
-      // Create directory
-      fs.mkdirSync(rssDir, { recursive: true });
-      
-      // Generate each feed type (skip discussions for now due to API complexity)
-      const feedTypes: FeedType[] = ['issues', 'pullRequests', 'releases'];
-      
-      for (const feedType of feedTypes) {
-        try {
-          const githubData = await fetchGitHubData(repository.owner, repository.repo, feedType);
-          const rssContent = generateRSSWithGitHubData(repository, feedType, githubData);
-          
-          // Save RSS file locally
-          const filepath = path.join(rssDir, `${feedType}.xml`);
-          fs.writeFileSync(filepath, rssContent);
-          
-          console.log(`✅ Saved ${feedType} RSS to: ${filepath}`);
-        } catch (error: any) {
-          console.error(`Error generating ${feedType} feed:`, error.message);
-        }
-      }
-      
-      // Create empty discussions feed for compatibility
-      try {
-        const emptyDiscussionsRss = generateRSSWithGitHubData(repository, 'discussions', []);
-        const discussionsPath = path.join(rssDir, 'discussions.xml');
-        
-        fs.writeFileSync(discussionsPath, emptyDiscussionsRss);
-        
-        console.log(`✅ Saved empty discussions RSS to: ${discussionsPath}`);
-      } catch (error: any) {
-        console.error('Error generating empty discussions feed:', error.message);
-      }
+      // Generate RSS feeds and save files
+      const feeds = await generateRSSFeeds(repository);
       
       // Update repository with feed URLs
-      await Repositories.updateAsync(repositoryId, {
-        $set: {
-          status: 'ready',
-          feeds,
-          lastUpdate: new Date()
-        }
-      });
+      await updateRepositoryStatus(repositoryId, 'ready', { feeds });
       
       return feeds;
       
     } catch (error: any) {
       // Update status to error
-      await Repositories.updateAsync(repositoryId, {
-        $set: {
-          status: 'error',
-          error: error.message,
-          lastUpdate: new Date()
-        }
-      });
+      await updateRepositoryStatus(repositoryId, 'error', { error: error.message });
       throw error;
     }
   }
@@ -231,13 +244,14 @@ async function fetchGitHubData(owner: string, repo: string, feedType: FeedType):
   const fetch = require('node-fetch');
   
   const githubToken = process.env.GITHUB_TOKEN;
+  
   const headers: any = {
     'User-Agent': 'GitHub-RSS-Generator/1.0',
     'Accept': 'application/vnd.github.v3+json',
   };
   
   if (githubToken) {
-    headers['Authorization'] = `token ${githubToken}`;
+    headers['Authorization'] = `Bearer ${githubToken}`;
   }
   
   const endpoints: Record<FeedType, string> = {
@@ -261,68 +275,72 @@ async function fetchGitHubData(owner: string, repo: string, feedType: FeedType):
     const data = await response.json();
     return Array.isArray(data) ? data : [];
   } catch (error: any) {
-    console.error(`Error fetching ${feedType}:`, error.message);
     return [];
   }
 }
 
-// Helper function to generate RSS content
+function processRSSItem(item: any, feedType: FeedType): { title: string; link: string; description: string; date: string } {
+  let itemTitle = '';
+  let itemLink = '';
+  let itemDescription = '';
+  let itemDate = '';
+  
+  switch (feedType) {
+    case 'issues':
+      itemTitle = `Issue #${item.number}: ${item.title}`;
+      itemLink = item.html_url;
+      itemDescription = item.body || 'No description provided';
+      itemDate = item.created_at;
+      break;
+    case 'pullRequests':
+      itemTitle = `Pull Request #${item.number}: ${item.title}`;
+      itemLink = item.html_url;
+      itemDescription = item.body || 'No description provided';
+      itemDate = item.created_at;
+      break;
+    case 'discussions':
+      itemTitle = item.title || `Discussion #${item.number}`;
+      itemLink = item.html_url;
+      itemDescription = item.body || 'No description provided';
+      itemDate = item.created_at;
+      break;
+    case 'releases':
+      itemTitle = `Release ${item.tag_name}: ${item.name || item.tag_name}`;
+      itemLink = item.html_url;
+      itemDescription = item.body || 'No release notes provided';
+      itemDate = item.published_at || item.created_at;
+      break;
+    default:
+      throw new Error(`Unknown feed type: ${feedType}`);
+  }
+  
+  return { title: itemTitle, link: itemLink, description: itemDescription, date: itemDate };
+}
+
+function cleanDescription(description: string): string {
+  const cleaned = description
+    .replace(/```[\s\S]*?```/g, '[code block]')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[#*_]/g, '')
+    .substring(0, 500);
+  
+  return cleaned.length < description.length ? cleaned + '...' : cleaned;
+}
+
 function generateRSSWithGitHubData(repository: Repository, feedType: FeedType, githubData: any[]): string {
   const title = `${repository.owner}/${repository.repo} - ${feedType.charAt(0).toUpperCase() + feedType.slice(1)}`;
   const description = `RSS feed for ${feedType} in ${repository.owner}/${repository.repo}`;
   
   const rssItems = githubData.slice(0, 20).map(item => {
-    let itemTitle = '';
-    let itemLink = '';
-    let itemDescription = '';
-    let itemDate = '';
-    
-    switch (feedType) {
-      case 'issues':
-        itemTitle = `Issue #${item.number}: ${item.title}`;
-        itemLink = item.html_url;
-        itemDescription = item.body || 'No description provided';
-        itemDate = item.created_at;
-        break;
-      case 'pullRequests':
-        itemTitle = `Pull Request #${item.number}: ${item.title}`;
-        itemLink = item.html_url;
-        itemDescription = item.body || 'No description provided';
-        itemDate = item.created_at;
-        break;
-      case 'discussions':
-        itemTitle = item.title || `Discussion #${item.number}`;
-        itemLink = item.html_url;
-        itemDescription = item.body || 'No description provided';
-        itemDate = item.created_at;
-        break;
-      case 'releases':
-        itemTitle = `Release ${item.tag_name}: ${item.name || item.tag_name}`;
-        itemLink = item.html_url;
-        itemDescription = item.body || 'No release notes provided';
-        itemDate = item.published_at || item.created_at;
-        break;
-      default:
-        return '';
-    }
-    
-    // Clean up description
-    const cleanDescription = itemDescription
-      .replace(/```[\s\S]*?```/g, '[code block]')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/[#*_]/g, '')
-      .substring(0, 500);
-    
-    const finalDescription = cleanDescription.length < itemDescription.length 
-      ? cleanDescription + '...' 
-      : cleanDescription;
+    const { title: itemTitle, link: itemLink, description: itemDescription, date: itemDate } = processRSSItem(item, feedType);
+    const cleanedDescription = cleanDescription(itemDescription);
     
     return `
     <item>
       <title><![CDATA[${itemTitle}]]></title>
       <link>${itemLink}</link>
-      <description><![CDATA[${finalDescription}]]></description>
+      <description><![CDATA[${cleanedDescription}]]></description>
       <pubDate>${new Date(itemDate).toUTCString()}</pubDate>
       <guid>${itemLink}</guid>
     </item>`;

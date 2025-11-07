@@ -124,8 +124,10 @@ Desktop.ini
 tmp/
 temp/
 
-# Local RSS files (when S3 is not configured)
-public/*.xml
-
 # Local settings with secrets
 settings.json
+
+# AWS credentials and sensitive config
+.env
+.env.*
+settings.production.json

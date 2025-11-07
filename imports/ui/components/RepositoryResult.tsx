@@ -1,5 +1,7 @@
 import React from 'react';
+import { Meteor } from 'meteor/meteor';
 import { SearchResult, FeedType } from '../../api/types';
+import FeedCard from './FeedCard';
 
 interface RepositoryResultProps {
   result: SearchResult;
@@ -23,6 +25,28 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
     { key: 'discussions', label: 'Discussions', icon: '💬' },
     { key: 'releases', label: 'Releases', icon: '🚀' }
   ];
+
+  // Function to get presigned URL for a specific feed
+  const getPresignedUrl = async (repositoryId: string, feedType: string): Promise<string | null> => {
+    try {
+      console.log(`🔗 Requesting presigned URLs for repository: ${repositoryId}`);
+      
+      const presignedUrls = await new Promise<Record<FeedType, string | null>>((resolve, reject) => {
+        Meteor.call('repositories.getPresignedRSSUrls', repositoryId, (error: any, result: Record<FeedType, string | null>) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        });
+      });
+      
+      return presignedUrls[feedType as FeedType] || null;
+    } catch (error: any) {
+      console.error('❌ Failed to get presigned URLs:', error.message);
+      return null;
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -210,79 +234,20 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
           {feedTypes.map(({ key, label, icon }) => {
             const feedUrl = repository.feeds?.[key as keyof typeof repository.feeds];
             const isAvailable = !!feedUrl;
+            const isGenerating = repository.status === 'generating';
             
             return (
-              <div
+              <FeedCard
                 key={key}
-                style={{
-                  border: `2px solid ${isAvailable ? '#27ae60' : '#e1e8ed'}`,
-                  borderRadius: '12px',
-                  padding: '20px',
-                  background: isAvailable ? '#f8fff8' : '#fafbfc',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '10px',
-                  marginBottom: '12px'
-                }}>
-                  <span style={{ fontSize: '24px' }}>{icon}</span>
-                  <div>
-                    <span style={{ 
-                      fontWeight: '600',
-                      color: '#2c3e50',
-                      fontSize: '1em'
-                    }}>
-                      {label}
-                    </span>
-                  </div>
-                </div>
-                
-                {isAvailable ? (
-                  <div>
-                    <a
-                      href={feedUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        color: '#3498db',
-                        textDecoration: 'none',
-                        fontSize: '0.9em',
-                        fontWeight: '500',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
-                        background: '#f0f8ff',
-                        borderRadius: '6px',
-                        border: '1px solid #3498db30'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#e6f3ff';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f0f8ff';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                      }}
-                    >
-                      📄 View XML Feed
-                    </a>
-                  </div>
-                ) : (
-                  <div style={{ 
-                    color: '#95a5a6',
-                    fontSize: '0.9em',
-                    fontStyle: 'italic'
-                  }}>
-                    {repository.status === 'generating' ? '⏳ Generating...' : 
-                     repository.status === 'pending' ? '⏳ Queued...' : 
-                     '❌ Not available'}
-                  </div>
-                )}
-              </div>
+                title={label}
+                icon={icon}
+                feedUrl={feedUrl}
+                isAvailable={isAvailable}
+                isGenerating={isGenerating}
+                repositoryId={repository._id}
+                feedType={key}
+                onGetPresignedUrl={getPresignedUrl}
+              />
             );
           })}
         </div>

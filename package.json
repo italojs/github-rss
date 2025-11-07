@@ -15,8 +15,10 @@
     "deploy": "meteor deploy github-rss.meteorapp.com"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.926.0",
     "@babel/runtime": "^7.23.5",
     "@swc/helpers": "^0.5.17",
+    "aws-sdk": "^2.1692.0",
     "dotenv": "^17.2.3",
     "meteor-node-stubs": "^1.2.12",
     "mongodb": "^6.3.0",

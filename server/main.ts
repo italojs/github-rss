@@ -1,70 +1,50 @@
-// Load environment variables FIRST, before any imports
-// Set GitHub token from environment variable
-// Load environment variables FIRST, before any imports
-// Set GitHub token from environment variable
-process.env.GITHUB_TOKEN = process.env.GITHUB_TOKEN || 'your_github_token_here';
-
 import { Meteor } from 'meteor/meteor';
 import { WebApp } from 'meteor/webapp';
 import '/imports/api/repositories/collection';
 import '/imports/api/repositories/methods';
 
 Meteor.startup(async () => {
-  console.log('🚀 GitHub RSS Generator Server Starting...');
+  const settings = Meteor.settings.private;
+  const githubToken = settings?.github?.token;
   
-  // Simple check for GitHub token
-  console.log(`🔑 GitHub Token: ${process.env.GITHUB_TOKEN ? '✅ Configured' : '❌ Missing'}`);
+  if (githubToken) {
+    process.env.GITHUB_TOKEN = githubToken;
+  }
   
-  // Configure static file serving for RSS feeds
-  const fs = require('fs');
-  const path = require('path');
-  
-  WebApp.connectHandlers.use('/rss', (req: any, res: any, next: any) => {
-    console.log(`📡 RSS request: ${req.method} ${req.url}`);
-    
-    // Only handle GET requests for XML files
+  if (settings?.aws) {
+    process.env.AWS_ACCESS_KEY_ID = settings.aws.accessKeyId;
+    process.env.AWS_SECRET_ACCESS_KEY = settings.aws.secretAccessKey;
+    process.env.AWS_REGION = settings.aws.region;
+    process.env.S3_BUCKET = settings.aws.s3Bucket;
+  }
+
+  if (!githubToken) {
+    throw new Error('GitHub token not configured in Meteor.settings.private.github.token');
+  }
+
+  if (!settings?.aws?.accessKeyId) {
+    throw new Error('AWS credentials not configured in Meteor.settings.private.aws');
+  }
+
+  WebApp.connectHandlers.use('/api/rss', (req: any, res: any, next: any) => {
     if (req.method !== 'GET' || !req.url.endsWith('.xml')) {
       return next();
     }
     
-    const rssPath = path.join(process.cwd(), 'public', 'rss', req.url);
-    console.log(`📂 Looking for RSS file at: ${rssPath}`);
+    const urlParts = req.url.split('/');
+    if (urlParts.length !== 2) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Invalid RSS URL format. Expected: /owner-repo/feedType.xml');
+      return;
+    }
     
-    // Check if file exists
-    fs.access(rssPath, fs.constants.F_OK, (err: any) => {
-      if (err) {
-        console.log(`❌ RSS file not found: ${rssPath}`);
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('RSS feed not found');
-        return;
-      }
-      
-      // Read and serve the file with correct headers
-      fs.readFile(rssPath, 'utf8', (err: any, data: string) => {
-        if (err) {
-          console.log(`❌ Error reading RSS file: ${err.message}`);
-          res.writeHead(500, { 'Content-Type': 'text/plain' });
-          res.end('Error reading RSS feed');
-          return;
-        }
-        
-        console.log(`✅ Serving RSS file: ${rssPath} (${data.length} chars)`);
-        
-        // Set correct headers for XML/RSS
-        res.writeHead(200, {
-          'Content-Type': 'application/rss+xml; charset=utf-8',
-          'Content-Length': Buffer.byteLength(data, 'utf8'),
-          'Cache-Control': 'public, max-age=300', // 5 minutes cache
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET',
-          'Access-Control-Allow-Headers': 'Content-Type'
-        });
-        
-        res.end(data);
-      });
+    const repositoryName = urlParts[0];
+    const feedType = urlParts[1].replace('.xml', '');
+    
+    res.writeHead(302, { 
+      'Location': `/?redirect=rss&repo=${repositoryName}&feed=${feedType}`,
+      'Content-Type': 'text/plain'
     });
+    res.end(`Redirecting to RSS feed for ${repositoryName}/${feedType}`);
   });
-  
-  console.log('✅ Server ready - GitHub RSS Generator is running!');
-  console.log('📡 Visit http://localhost:3000 to start generating RSS feeds');
 });
