@@ -1,8 +1,12 @@
 import { Meteor } from 'meteor/meteor';
+import { Log } from 'meteor/logging';
 import { check } from 'meteor/check';
 import { Repositories } from './collection';
 import { Repository, FeedType, SearchResult } from '../types';
 import S3Service from '../clients/s3';
+import GitHubService from '../clients/github';
+
+const githubService = new GitHubService();
 
 async function findRepositoryById(repositoryId: string): Promise<Repository | undefined> {
   return await Repositories.findOneAsync({ _id: repositoryId });
@@ -41,32 +45,24 @@ async function generateRSSFeeds(repository: Repository): Promise<Record<FeedType
   };
   
   
-  const feedTypes: FeedType[] = ['issues', 'pullRequests', 'releases'];
+  const feedTypes: FeedType[] = ['issues', 'pullRequests', 'releases', 'discussions'];
   const rssContents: Record<string, string> = {};
   
   for (const feedType of feedTypes) {
     try {
-      const githubData = await fetchGitHubData(repository.owner, repository.repo, feedType);
+      const githubData = await githubService.fetchFeed(repository.owner, repository.repo, feedType);
       const rssContent = generateRSSWithGitHubData(repository, feedType, githubData);
       rssContents[feedType] = rssContent;
     } catch (error: any) {
-      // Continue with other feeds
+      Log.error(`Failed to generate ${feedType} feed for ${repository.owner}/${repository.repo}: ${error?.message ?? error}`);
     }
-  }
-  
-    
-  try {
-    const emptyDiscussionsRss = generateRSSWithGitHubData(repository, 'discussions', []);
-    rssContents['discussions'] = emptyDiscussionsRss;
-  } catch (error: any) {
-    // Ignore discussions errors
   }
 
   try {
     const s3 = new S3Service();
     await s3.uploadAllRSSToS3(repoPath, rssContents);
   } catch (error: any) {
-    // Continue with API endpoint URLs on failure
+    Log.error(`Failed to upload RSS feeds to S3 for ${repository.owner}/${repository.repo}: ${error?.message ?? error}`);
   }
 
   return feeds;
@@ -111,7 +107,7 @@ Meteor.methods({
       try {
         await generateRSSAndUpdateRepository(repositoryId);
       } catch (error: any) {
-        // Error handled silently
+        Log.error(`Deferred RSS generation failed for ${owner}/${repo}: ${error?.message ?? error}`);
       }
     });
     
@@ -215,6 +211,7 @@ async function generateRSSAndUpdateRepository(repositoryId: string) {
     return feeds;
   } catch (error: any) {
     // Update status to error
+    Log.error(`RSS generation failed for repository ${repository.owner}/${repository.repo}: ${error?.message ?? error}`);
     await updateRepositoryStatus(repositoryId, 'error', { error: error.message });
     throw error;
   }
@@ -235,40 +232,6 @@ function parseGitHubUrl(githubUrl: string): { owner: string; repo: string; fullU
     repo: cleanRepo,
     fullUrl: `https://github.com/${owner}/${cleanRepo}`
   };
-}
-
-// Helper function to fetch data from GitHub API
-async function fetchGitHubData(owner: string, repo: string, feedType: FeedType): Promise<any[]> {
-  const fetch = require('node-fetch');
-  const githubToken = Meteor.settings?.private?.github?.token;
-  const headers: any = {
-    'User-Agent': 'GitHub-RSS-Generator/1.0',
-    'Accept': 'application/vnd.github.v3+json',
-  };
-  if (githubToken) {
-    headers['Authorization'] = `Bearer ${githubToken}`;
-  }
-  
-  const endpoints: Record<FeedType, string> = {
-    issues: `https://api.github.com/repos/${owner}/${repo}/issues?state=all&sort=created&direction=desc&per_page=50`,
-    pullRequests: `https://api.github.com/repos/${owner}/${repo}/pulls?state=all&sort=created&direction=desc&per_page=50`,
-    releases: `https://api.github.com/repos/${owner}/${repo}/releases?per_page=50`,
-    discussions: `https://api.github.com/repos/${owner}/${repo}/discussions?per_page=50`
-  };
-  
-  const url = endpoints[feedType];
-  if (!url) return [];
-  try {
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      if (response.status === 404) return [];
-      throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
-    }
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
-  } catch (error: any) {
-    return [];
-  }
 }
 
 function processRSSItem(item: any, feedType: FeedType): { title: string; link: string; description: string; date: string } {
