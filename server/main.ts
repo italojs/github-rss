@@ -5,25 +5,13 @@ import '/imports/api/repositories/methods';
 
 Meteor.startup(async () => {
   const settings = Meteor.settings.private;
+
   const githubToken = settings?.github?.token;
-  
-  if (githubToken) {
-    process.env.GITHUB_TOKEN = githubToken;
-  }
-  
-  if (settings?.aws) {
-    process.env.AWS_ACCESS_KEY_ID = settings.aws.accessKeyId;
-    process.env.AWS_SECRET_ACCESS_KEY = settings.aws.secretAccessKey;
-    process.env.AWS_REGION = settings.aws.region;
-    process.env.S3_BUCKET = settings.aws.s3Bucket;
-  }
-
   if (!githubToken) {
-    throw new Error('GitHub token not configured in Meteor.settings.private.github.token');
+  throw new Error('GitHub token not configured in Meteor.settings.private.github.token');
   }
-
   if (!settings?.aws?.accessKeyId) {
-    throw new Error('AWS credentials not configured in Meteor.settings.private.aws');
+  throw new Error('AWS credentials not configured in Meteor.settings.private.aws');
   }
 
   WebApp.connectHandlers.use('/api/rss', (req: any, res: any, next: any) => {

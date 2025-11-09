@@ -10,8 +10,6 @@ if (Meteor.isServer) {
   Meteor.startup(async () => {
     await Repositories.createIndexAsync({ url: 1 }, { unique: true });
     await Repositories.createIndexAsync({ owner: 1, repo: 1 });
-    await Repositories.createIndexAsync({ status: 1 });
-    await Repositories.createIndexAsync({ lastUpdate: 1 });
     
     console.log('📊 MongoDB indexes created for repositories collection');
   });

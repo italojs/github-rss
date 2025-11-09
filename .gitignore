@@ -131,3 +131,7 @@ settings.json
 .env
 .env.*
 settings.production.json
+
+# meteor
+.meteor/local/
+.settings.json

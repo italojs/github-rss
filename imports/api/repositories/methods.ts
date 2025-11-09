@@ -2,7 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { check } from 'meteor/check';
 import { Repositories } from './collection';
 import { Repository, FeedType, SearchResult } from '../types';
-import { uploadAllRSSToS3, getPresignedRSSUrl } from '../s3/upload';
+import S3Service from '../clients/s3';
 
 async function findRepositoryById(repositoryId: string): Promise<Repository | undefined> {
   return await Repositories.findOneAsync({ _id: repositoryId });
@@ -48,7 +48,6 @@ async function generateRSSFeeds(repository: Repository): Promise<Record<FeedType
     try {
       const githubData = await fetchGitHubData(repository.owner, repository.repo, feedType);
       const rssContent = generateRSSWithGitHubData(repository, feedType, githubData);
-      
       rssContents[feedType] = rssContent;
     } catch (error: any) {
       // Continue with other feeds
@@ -58,14 +57,14 @@ async function generateRSSFeeds(repository: Repository): Promise<Record<FeedType
     
   try {
     const emptyDiscussionsRss = generateRSSWithGitHubData(repository, 'discussions', []);
-    
     rssContents['discussions'] = emptyDiscussionsRss;
   } catch (error: any) {
     // Ignore discussions errors
   }
 
   try {
-    await uploadAllRSSToS3(repoPath, rssContents);
+    const s3 = new S3Service();
+    await s3.uploadAllRSSToS3(repoPath, rssContents);
   } catch (error: any) {
     // Continue with API endpoint URLs on failure
   }
@@ -110,9 +109,9 @@ Meteor.methods({
     
     Meteor.defer(async () => {
       try {
-        await Meteor.callAsync('repositories.generateRSS', repositoryId);
+        await generateRSSAndUpdateRepository(repositoryId);
       } catch (error: any) {
-        console.error(`Auto RSS generation failed for ${owner}/${repo}:`, error.message);
+        // Error handled silently
       }
     });
     
@@ -148,9 +147,10 @@ Meteor.methods({
       releases: null
     };
 
+    const s3 = new S3Service();
     for (const feedType of feedTypes) {
       try {
-        const presignedUrl = await getPresignedRSSUrl(repoPath, feedType);
+        const presignedUrl = await s3.getPresignedRSSUrl(repoPath, feedType);
         presignedUrls[feedType] = presignedUrl;
       } catch (error: any) {
         presignedUrls[feedType] = null;
@@ -196,31 +196,29 @@ Meteor.methods({
   // Force RSS generation for a specific repository with real GitHub API data
   async 'repositories.generateRSS'(repositoryId: string) {
     check(repositoryId, String);
-    
-    const repository = await findRepositoryById(repositoryId);
-    if (!repository) {
-      throw new Meteor.Error('repository-not-found', 'Repository not found');
-    }
-    
-    try {
-      // Update status to generating
-      await updateRepositoryStatus(repositoryId, 'generating');
-      
-      // Generate RSS feeds and save files
-      const feeds = await generateRSSFeeds(repository);
-      
-      // Update repository with feed URLs
-      await updateRepositoryStatus(repositoryId, 'ready', { feeds });
-      
-      return feeds;
-      
-    } catch (error: any) {
-      // Update status to error
-      await updateRepositoryStatus(repositoryId, 'error', { error: error.message });
-      throw error;
-    }
+    return await generateRSSAndUpdateRepository(repositoryId);
   }
 });
+
+async function generateRSSAndUpdateRepository(repositoryId: string) {
+  const repository = await findRepositoryById(repositoryId);
+  if (!repository) {
+    throw new Meteor.Error('repository-not-found', 'Repository not found');
+  }
+  try {
+    // Update status to generating
+    await updateRepositoryStatus(repositoryId, 'generating');
+    // Generate RSS feeds and save files
+    const feeds = await generateRSSFeeds(repository);
+    // Update repository with feed URLs
+    await updateRepositoryStatus(repositoryId, 'ready', { feeds });
+    return feeds;
+  } catch (error: any) {
+    // Update status to error
+    await updateRepositoryStatus(repositoryId, 'error', { error: error.message });
+    throw error;
+  }
+}
 
 // Helper function to parse GitHub URL
 function parseGitHubUrl(githubUrl: string): { owner: string; repo: string; fullUrl: string } {
@@ -242,14 +240,11 @@ function parseGitHubUrl(githubUrl: string): { owner: string; repo: string; fullU
 // Helper function to fetch data from GitHub API
 async function fetchGitHubData(owner: string, repo: string, feedType: FeedType): Promise<any[]> {
   const fetch = require('node-fetch');
-  
-  const githubToken = process.env.GITHUB_TOKEN;
-  
+  const githubToken = Meteor.settings?.private?.github?.token;
   const headers: any = {
     'User-Agent': 'GitHub-RSS-Generator/1.0',
     'Accept': 'application/vnd.github.v3+json',
   };
-  
   if (githubToken) {
     headers['Authorization'] = `Bearer ${githubToken}`;
   }
@@ -263,15 +258,12 @@ async function fetchGitHubData(owner: string, repo: string, feedType: FeedType):
   
   const url = endpoints[feedType];
   if (!url) return [];
-  
   try {
     const response = await fetch(url, { headers });
-    
     if (!response.ok) {
       if (response.status === 404) return [];
       throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
     }
-    
     const data = await response.json();
     return Array.isArray(data) ? data : [];
   } catch (error: any) {

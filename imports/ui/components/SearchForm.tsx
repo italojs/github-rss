@@ -117,9 +117,9 @@ const SearchForm: React.FC<SearchFormProps> = ({ onSearch, loading }) => {
         }}>
           {[
             { url: 'https://github.com/nodejs/node', label: 'nodejs/node' },
+            { url: 'https://github.com/meteor/meteor', label: 'meteor/meteor' },
             { url: 'https://github.com/facebook/react', label: 'facebook/react' },
             { url: 'https://github.com/microsoft/vscode', label: 'microsoft/vscode' },
-            { url: 'https://github.com/vercel/next.js', label: 'vercel/next.js' }
           ].map(({ url: exampleUrl, label }) => (
             <button
               key={exampleUrl}

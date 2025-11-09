@@ -1,16 +1,19 @@
 // Simple RSS generator test
-require('dotenv').config();
 
 const { MongoClient } = require('mongodb');
 const fs = require('fs');
 const path = require('path');
 
+// ATENÇÃO: Este script não roda dentro do contexto Meteor, portanto Meteor.settings não está disponível.
+// Use variáveis de ambiente para passar configurações sensíveis (ex: MONGO_URL, GITHUB_TOKEN).
+
 async function generateRSSForRepo() {
   try {
     console.log('🚀 Starting RSS generation...');
     
-    // Connect to MongoDB
-    const client = new MongoClient(process.env.MONGO_URL || 'mongodb://localhost:3001/meteor');
+  // Connect to MongoDB
+  const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:3001/meteor';
+  const client = new MongoClient(mongoUrl);
     await client.connect();
     console.log('✅ Connected to MongoDB');
     

@@ -1,6 +1,8 @@
 const { MongoClient } = require('mongodb');
 const cron = require('node-cron');
-require('dotenv').config();
+
+// ATENÇÃO: Este script não roda dentro do contexto Meteor, portanto Meteor.settings não está disponível.
+// Use variáveis de ambiente para passar configurações sensíveis (ex: MONGO_URL, GITHUB_TOKEN).
 
 // Import fetch for Node.js compatibility
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
