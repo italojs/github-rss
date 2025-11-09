@@ -8,6 +8,12 @@
       "secretAccessKey": "your_aws_secret_key_here",
       "region": "us-east-1",
       "s3Bucket": "your-bucket-name"
+    },
+    "openai": {
+      "apiKey": "sk-YOUR_OPENAI_KEY"
+    },
+    "serper": {
+      "apiKey": "your_serper_key_here"
     }
   }
 }

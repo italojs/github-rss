@@ -37,9 +37,14 @@
    meteor npm install
    ```
 
-3. **Configure GitHub Token** (optional)
-   - Get a token from [GitHub Settings](https://github.com/settings/tokens)
-   - Add it to `server/main.ts` or use environment variables
+3. **Configure application settings**
+   - Copy `settings.example.json` to `.settings.json` in the project root
+   - Fill in the credentials for the services you plan to use:
+     - `private.github.token`: GitHub Personal Access Token (recommended to avoid rate limits)
+     - `private.aws.*`: AWS credentials and the S3 bucket that stores generated RSS files
+     - `private.openai.apiKey`: OpenAI API key for AI-powered features (if enabled)
+     - `private.serper.apiKey`: Serper API key for search integrations (if enabled)
+   - Keep `.settings.json` out of version control to protect your secrets
 
 4. **Start the application**
    ```bash
