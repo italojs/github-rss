@@ -3,59 +3,36 @@ import React, { useState } from 'react';
 interface FeedCardProps {
   title: string;
   icon: string;
-  feedUrl?: string;
   isAvailable: boolean;
   isGenerating: boolean;
   repositoryId?: string;
   feedType?: string;
-  onGetPresignedUrl?: (repositoryId: string, feedType: string) => Promise<string | null>;
+  onGetDirectUrl?: (repositoryId: string, feedType: string) => Promise<string | null>;
 }
 
 const FeedCard: React.FC<FeedCardProps> = ({ 
   title, 
   icon, 
-  feedUrl, 
   isAvailable, 
   isGenerating,
   repositoryId,
   feedType,
-  onGetPresignedUrl
+  onGetDirectUrl
 }) => {
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
 
   const handleViewXML = async () => {
-    if (!isAvailable || !repositoryId || !feedType || !onGetPresignedUrl) {
-      // Fallback to direct URL if no presigned URL function provided
-      if (feedUrl) {
-        window.open(feedUrl, '_blank');
-      }
+    if (!isAvailable || !repositoryId || !feedType || !onGetDirectUrl) {
       return;
     }
 
     setIsLoadingUrl(true);
-    console.log(`🔗 Requesting presigned URL for ${repositoryId}/${feedType}...`);
     
-    try {
-      const presignedUrl = await onGetPresignedUrl(repositoryId, feedType);
-      
-      if (presignedUrl) {
-        console.log(`✅ Opening presigned URL: ${presignedUrl.substring(0, 60)}...`);
-        window.open(presignedUrl, '_blank');
-      } else {
-        console.log('⚠️ No presigned URL generated, using fallback');
-        if (feedUrl) {
-          window.open(feedUrl, '_blank');
-        }
-      }
-    } catch (error: any) {
-      console.error('❌ Failed to get presigned URL:', error.message);
-      // Fallback to direct URL
-      if (feedUrl) {
-        window.open(feedUrl, '_blank');
-      }
-    } finally {
-      setIsLoadingUrl(false);
+    const directUrl = await onGetDirectUrl(repositoryId, feedType);
+    if (directUrl) {
+      window.open(directUrl, '_blank');
     }
+    setIsLoadingUrl(false);
   };
 
   return (
@@ -89,7 +66,7 @@ const FeedCard: React.FC<FeedCardProps> = ({
         </div>
       </div>
       
-      {isAvailable && (feedUrl || (repositoryId && feedType)) ? (
+      {isAvailable && repositoryId && feedType ? (
         <div>
           <button
             onClick={handleViewXML}
@@ -122,7 +99,7 @@ const FeedCard: React.FC<FeedCardProps> = ({
               }
             }}
           >
-            {isLoadingUrl ? '🔗 Generating link...' : '📄 View XML Feed'}
+            {isLoadingUrl ? '🔗 Loading...' : '📄 View XML Feed'}
           </button>
         </div>
       ) : (

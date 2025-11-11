@@ -17,10 +17,7 @@ export const App: React.FC = () => {
     
     // Se está generating, aguardar 5 segundos e fazer refresh
     if (repository.status === 'generating') {
-      console.log('🔄 Repository is generating, waiting 5 seconds before refresh...');
-      
       const refreshTimeout = setTimeout(() => {
-        console.log('⏰ 5 seconds passed, refreshing repository status...');
         handleSearch(searchResult.parsedUrl.fullUrl);
       }, 5000); // 5 segundos
       
@@ -49,47 +46,27 @@ export const App: React.FC = () => {
 
   const handleGenerateRSS = (githubUrl: string) => {
     setLoading(true);
-    setError(null);
-
-    console.log('🚀 Starting RSS generation...');
-
-    Meteor.call('repositories.create', githubUrl, (error: Meteor.Error | undefined, repositoryId: string) => {
+    
+    Meteor.call('repositories.create', githubUrl, (error: any) => {
       setLoading(false);
       
       if (error) {
-        setError(error.reason || 'Failed to create repository');
+        alert(`Failed to create repository: ${error.message}`);
         return;
       }
       
-      // Repository created successfully with ID: repositoryId
-      console.log('✅ Repository created with ID:', repositoryId);
-      console.log('⏳ RSS generation started, will auto-refresh in 5 seconds...');
-      
-      // Refresh search to show updated status (should show "generating")
       handleSearch(githubUrl);
     });
   };
 
-  const handleForceGenerate = (repositoryId: string) => {
-    console.log('🚀 Force generate called with ID:', repositoryId);
-    setLoading(true);
-    setError(null);
-
-    Meteor.call('repositories.generateRSS', repositoryId, (error: Meteor.Error | undefined, response: any) => {
-      console.log('📨 Method response:', { error, response });
-      setLoading(false);
-      
+    const handleForceGenerate = (repositoryId: string) => {
+    Meteor.call('repositories.generateRSS', repositoryId, (error: any) => {
       if (error) {
-        console.error('❌ RSS generation error:', error);
-        setError(error.reason || 'Failed to generate RSS feeds');
+        alert(`Failed to generate RSS: ${error.message}`);
         return;
       }
       
-      console.log('✅ RSS generation started in background:', response);
-      console.log('⏳ Will auto-refresh in 5 seconds to check status...');
-      
-      // Refresh the current search to show updated status (should show "generating")
-      if (searchResult) {
+      if (searchResult?.parsedUrl?.fullUrl) {
         handleSearch(searchResult.parsedUrl.fullUrl);
       }
     });

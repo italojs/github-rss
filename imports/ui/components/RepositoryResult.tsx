@@ -26,26 +26,17 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
     { key: 'releases', label: 'Releases', icon: '🚀' }
   ];
 
-  // Function to get presigned URL for a specific feed
-  const getPresignedUrl = async (repositoryId: string, feedType: string): Promise<string | null> => {
-    try {
-      console.log(`🔗 Requesting presigned URLs for repository: ${repositoryId}`);
-      
-      const presignedUrls = await new Promise<Record<FeedType, string | null>>((resolve, reject) => {
-        Meteor.call('repositories.getPresignedRSSUrls', repositoryId, (error: any, result: Record<FeedType, string | null>) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(result);
-          }
-        });
+  // Function to get direct URL for a specific feed from S3
+  const getDirectUrl = (repositoryId: string, feedType: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      Meteor.call('repositories.getDirectRSSUrls', repositoryId, (error: any, result: Record<FeedType, string | null>) => {
+        if (error) {
+          resolve(null);
+        } else {
+          resolve(result[feedType as FeedType] || null);
+        }
       });
-      
-      return presignedUrls[feedType as FeedType] || null;
-    } catch (error: any) {
-      console.error('❌ Failed to get presigned URLs:', error.message);
-      return null;
-    }
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -241,12 +232,11 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
                 key={key}
                 title={label}
                 icon={icon}
-                feedUrl={feedUrl}
                 isAvailable={isAvailable}
                 isGenerating={isGenerating}
                 repositoryId={repository._id}
                 feedType={key}
-                onGetPresignedUrl={getPresignedUrl}
+                onGetDirectUrl={getDirectUrl}
               />
             );
           })}
