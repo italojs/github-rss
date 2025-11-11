@@ -7,7 +7,7 @@ interface FeedCardProps {
   isGenerating: boolean;
   repositoryId?: string;
   feedType?: string;
-  onGetDirectUrl?: (repositoryId: string, feedType: string) => Promise<string | null>;
+  onGetDirectUrl?: (repositoryId: string, feedType: string) => Promise<{url: string | null, wasRegenerated: boolean}>;
 }
 
 const FeedCard: React.FC<FeedCardProps> = ({ 
@@ -28,10 +28,15 @@ const FeedCard: React.FC<FeedCardProps> = ({
 
     setIsLoadingUrl(true);
     
-    const directUrl = await onGetDirectUrl(repositoryId, feedType);
-    if (directUrl) {
-      window.open(directUrl, '_blank');
+    try {
+      const result = await onGetDirectUrl(repositoryId, feedType);
+      if (result && result.url) {
+        window.open(result.url, '_blank');
+      }
+    } catch (error) {
+      console.error('Error handling XML view:', error);
     }
+    
     setIsLoadingUrl(false);
   };
 

@@ -135,6 +135,25 @@ Meteor.methods({
     return repository.feeds;
   },
 
+    // Get feeds with 30-minute cache
+  async getFeedsWithCache(repositoryId: string) {
+    check(repositoryId, String);
+    
+    const repository = await findRepositoryById(repositoryId);
+    if (!repository) {
+      throw new Meteor.Error('repository-not-found', 'Repository not found');
+    }
+
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const lastUpdate = repository.lastUpdate;
+    
+    if (!lastUpdate || lastUpdate <= thirtyMinutesAgo || !repository.feeds) {
+      return await Meteor.callAsync('repositories.generateRSS', repositoryId);
+    }
+    
+    return repository.feeds;
+  },
+
   async 'repositories.getDirectRSSUrls'(repositoryId: string): Promise<Record<FeedType, string | null>> {
     check(repositoryId, String);
     
@@ -196,7 +215,7 @@ Meteor.methods({
     }).fetchAsync();
   },
 
-  // Force RSS generation for a specific repository with real GitHub API data
+  // Force RSS generation
   async 'repositories.generateRSS'(repositoryId: string) {
     check(repositoryId, String);
     
@@ -204,24 +223,19 @@ Meteor.methods({
     if (!repository) {
       throw new Meteor.Error('repository-not-found', 'Repository not found');
     }
+
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const lastUpdate = repository.lastUpdate;
     
-    try {
-      // Update status to generating
-      await updateRepositoryStatus(repositoryId, 'generating');
-      
-      // Generate RSS feeds and save files
-      const feeds = await generateRSSFeeds(repository);
-      
-      // Update repository with feed URLs
-      await updateRepositoryStatus(repositoryId, 'ready', { feeds });
-      
-      return feeds;
-      
-    } catch (error: any) {
-      // Update status to error
-      await updateRepositoryStatus(repositoryId, 'error', { error: error.message });
-      throw error;
+    if (lastUpdate && lastUpdate > thirtyMinutesAgo && repository.status === 'ready') {
+      return repository.feeds;
     }
+    
+    await updateRepositoryStatus(repositoryId, 'generating');
+    const feeds = await generateRSSFeeds(repository);
+    await updateRepositoryStatus(repositoryId, 'ready', { feeds, lastUpdate: new Date() });
+    
+    return feeds;
   }
 });
 

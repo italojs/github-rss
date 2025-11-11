@@ -1,5 +1,7 @@
 import React from 'react';
 import { Meteor } from 'meteor/meteor';
+import { useTracker } from 'meteor/react-meteor-data';
+import { Repositories } from '../../api/repositories/collection';
 import { SearchResult, FeedType } from '../../api/types';
 import FeedCard from './FeedCard';
 
@@ -26,14 +28,21 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
     { key: 'releases', label: 'Releases', icon: '🚀' }
   ];
 
-  // Function to get direct URL for a specific feed from S3
-  const getDirectUrl = (repositoryId: string, feedType: string): Promise<string | null> => {
+  const liveRepository = useTracker(() => {
+    if (!repository?._id) return repository;
+    return Repositories.findOne(repository._id) || repository;
+  }, [repository?._id]);
+
+  const currentRepo = liveRepository || repository;
+
+  const getDirectUrl = (repositoryId: string, feedType: string): Promise<{url: string | null, wasRegenerated: boolean}> => {
     return new Promise((resolve) => {
-      Meteor.call('repositories.getDirectRSSUrls', repositoryId, (error: any, result: Record<FeedType, string | null>) => {
+      Meteor.call('repositories.getFeedsWithCache', repositoryId, (error: any, result: {feeds: Record<FeedType, string>, wasRegenerated: boolean}) => {
         if (error) {
-          resolve(null);
+          resolve({url: null, wasRegenerated: false});
         } else {
-          resolve(result[feedType as FeedType] || null);
+          const url = result.feeds[feedType as FeedType] || null;
+          resolve({url, wasRegenerated: result.wasRegenerated});
         }
       });
     });
@@ -53,7 +62,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
     switch (status) {
       case 'ready': return 'Ready';
       case 'generating': return 'Generating...';
-      case 'pending': return 'Queued';
+      case 'pending': return 'Pending';
       case 'error': return 'Error';
       default: return 'Unknown';
     }
@@ -125,45 +134,45 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
     );
   }
 
-  if (!repository) return null;
+  if (!currentRepo) return null;
 
   return (
-    <div style={{
-      background: 'white',
-      border: '1px solid #e1e8ed',
-      borderRadius: '16px',
-      padding: '40px',
-      margin: '30px 0',
-      boxShadow: '0 8px 25px rgba(0,0,0,0.08)'
-    }}>
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
-        marginBottom: '30px',
-        flexWrap: 'wrap',
-        gap: '15px'
+    <>
+      <div style={{
+        background: 'white',
+        border: '1px solid #e1e8ed',
+        borderRadius: '16px',
+        padding: '40px',
+        margin: '30px 0',
+        boxShadow: '0 8px 25px rgba(0,0,0,0.08)'
       }}>
-        <div>
-          <h3 style={{ 
-            color: '#2c3e50', 
-            margin: '0 0 8px 0',
-            fontSize: '1.6em',
-            fontWeight: '600'
-          }}>
-            📦 {repository.owner}/{repository.repo}
-          </h3>
-          <p style={{ 
-            margin: 0, 
-            color: '#7f8c8d',
-            fontSize: '0.95em'
-          }}>
-            Created: {new Date(repository.createdAt).toLocaleDateString()}
-            {repository.lastUpdate && (
-              <span> • Updated: {new Date(repository.lastUpdate).toLocaleDateString()}</span>
-            )}
-          </p>
-        </div>
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          marginBottom: '30px',
+          flexWrap: 'wrap',
+          gap: '15px'
+        }}>
+          <div>
+            <h3 style={{ 
+              color: '#2c3e50', 
+              margin: '0 0 8px 0',
+              fontSize: '1.6em',
+              fontWeight: '600'
+            }}>
+              📦 {currentRepo.owner}/{currentRepo.repo}
+            </h3>
+            <p style={{ 
+              margin: 0, 
+              color: '#7f8c8d',
+              fontSize: '0.95em'
+            }}>
+              {currentRepo.lastUpdate && (
+                <span>Last updated: {new Date(currentRepo.lastUpdate).toLocaleDateString()} at {new Date(currentRepo.lastUpdate).toLocaleTimeString()}</span>
+              )}
+            </p>
+          </div>
         
         <div style={{
           display: 'flex',
@@ -171,8 +180,8 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
           gap: '10px',
           padding: '8px 16px',
           borderRadius: '20px',
-          backgroundColor: `${getStatusColor(repository.status)}15`,
-          border: `1px solid ${getStatusColor(repository.status)}40`
+          backgroundColor: `${getStatusColor(currentRepo.status)}15`,
+          border: `1px solid ${getStatusColor(currentRepo.status)}40`
         }}>
           <span
             style={{
@@ -180,20 +189,20 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
               width: '8px',
               height: '8px',
               borderRadius: '50%',
-              backgroundColor: getStatusColor(repository.status)
+              backgroundColor: getStatusColor(currentRepo.status)
             }}
           />
           <span style={{ 
             fontSize: '0.9em',
-            color: getStatusColor(repository.status),
+            color: getStatusColor(currentRepo.status),
             fontWeight: '600'
           }}>
-            {getStatusLabel(repository.status)}
+            {getStatusLabel(currentRepo.status)}
           </span>
         </div>
       </div>
 
-      {repository.error && (
+      {currentRepo.error && (
         <div style={{
           background: '#fee',
           border: '1px solid #fcc',
@@ -203,7 +212,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
           color: '#c33',
           fontSize: '0.95em'
         }}>
-          <strong>⚠️ Error:</strong> {repository.error}
+          <strong>⚠️ Error:</strong> {currentRepo.error}
         </div>
       )}
 
@@ -223,9 +232,9 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
           gap: '16px'
         }}>
           {feedTypes.map(({ key, label, icon }) => {
-            const feedUrl = repository.feeds?.[key as keyof typeof repository.feeds];
+            const feedUrl = currentRepo.feeds?.[key as keyof typeof currentRepo.feeds];
             const isAvailable = !!feedUrl;
-            const isGenerating = repository.status === 'generating';
+            const isGenerating = currentRepo.status === 'generating';
             
             return (
               <FeedCard
@@ -234,7 +243,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
                 icon={icon}
                 isAvailable={isAvailable}
                 isGenerating={isGenerating}
-                repositoryId={repository._id}
+                repositoryId={currentRepo._id}
                 feedType={key}
                 onGetDirectUrl={getDirectUrl}
               />
@@ -243,7 +252,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
         </div>
       </div>
 
-      {repository.status === 'pending' && (
+      {currentRepo.status === 'pending' && (
         <div style={{
           background: 'linear-gradient(135deg, #fff3cd, #ffeaa7)',
           border: '1px solid #f39c12',
@@ -257,9 +266,9 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
             Check back in a few minutes to see the results.
           </div>
           
-          {onForceGenerate && repository._id && (
+          {onForceGenerate && currentRepo._id && (
             <button
-              onClick={() => onForceGenerate(repository._id!)}
+              onClick={() => onForceGenerate(currentRepo._id!)}
               style={{
                 padding: '10px 20px',
                 background: 'linear-gradient(135deg, #f39c12, #e67e22)',
@@ -287,6 +296,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
         </div>
       )}
     </div>
+    </>
   );
 };
 
