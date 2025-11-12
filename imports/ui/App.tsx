@@ -36,7 +36,11 @@ export const App: React.FC = () => {
       setLoading(false);
       
       if (error) {
-        setError(error.reason || 'Search failed');
+        if (error.details === '404') {
+          setError('Repository not found on GitHub. Please check the URL and make sure the repository exists and is public.');
+        } else {
+          setError(error.reason || 'Search failed');
+        }
         return;
       }
       
@@ -107,15 +111,45 @@ export const App: React.FC = () => {
 
       {error && (
         <div style={{
-          background: '#fee',
-          border: '1px solid #fcc',
-          borderRadius: '12px',
-          padding: '20px',
+          background: error.includes('not found on GitHub') 
+            ? 'linear-gradient(135deg, #fee, #fdd)' 
+            : '#fee',
+          border: `1px solid ${error.includes('not found on GitHub') ? '#e74c3c' : '#fcc'}`,
+          borderRadius: '16px',
+          padding: '30px',
           margin: '20px 0',
           color: '#c33',
-          fontSize: '1em'
+          fontSize: '1em',
+          textAlign: 'center',
+          boxShadow: '0 4px 12px rgba(231, 76, 60, 0.1)'
         }}>
-          <strong>⚠️ Error:</strong> {error}
+          {error.includes('not found on GitHub') ? (
+            <div>
+              <div style={{ fontSize: '48px', marginBottom: '15px' }}>🔍❌</div>
+              <h3 style={{ 
+                margin: '0 0 10px 0', 
+                color: '#e74c3c',
+                fontSize: '1.3em',
+                fontWeight: '600'
+              }}>
+                Repository Not Found
+              </h3>
+              <p style={{ margin: '0 0 15px 0', lineHeight: '1.5' }}>
+                {error}
+              </p>
+              <div style={{ 
+                fontSize: '0.9em', 
+                color: '#95a5a6',
+                marginTop: '15px'
+              }}>
+                <strong>Tip:</strong> Make sure the repository exists and is public on GitHub
+              </div>
+            </div>
+          ) : (
+            <div>
+              <strong>⚠️ Error:</strong> {error}
+            </div>
+          )}
         </div>
       )}
 

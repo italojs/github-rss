@@ -78,11 +78,43 @@ async function generateRSSFeeds(repository: Repository): Promise<Record<FeedType
   return feeds;
 }
 
+// Helper function to check if GitHub repository exists
+async function checkGitHubRepositoryExists(owner: string, repo: string): Promise<boolean> {
+  const fetch = require('node-fetch');
+  
+  const githubToken = process.env.GITHUB_TOKEN;
+  
+  const headers: any = {
+    'User-Agent': 'GitHub-RSS-Generator/1.0',
+    'Accept': 'application/vnd.github.v3+json',
+  };
+  
+  if (githubToken) {
+    headers['Authorization'] = `Bearer ${githubToken}`;
+  }
+  
+  const url = `https://api.github.com/repos/${owner}/${repo}`;
+  
+  try {
+    const response = await fetch(url, { headers });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
 Meteor.methods({
   async 'repositories.search'(githubUrl: string): Promise<SearchResult> {
     check(githubUrl, String);
     
     const { owner, repo, fullUrl } = parseGitHubUrl(githubUrl);
+    
+    // Check if repository exists on GitHub
+    const githubExists = await checkGitHubRepositoryExists(owner, repo);
+    if (!githubExists) {
+      throw new Meteor.Error('repository-not-found', `Repository ${owner}/${repo} not found on GitHub`);
+    }
+    
     const existingRepo = await findRepositoryByOwnerRepo(owner, repo);
     
     return {
