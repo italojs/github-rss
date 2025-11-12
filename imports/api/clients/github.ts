@@ -1,6 +1,5 @@
 import fetch from 'node-fetch';
 import { Meteor } from 'meteor/meteor';
-import { Log } from 'meteor/logging';
 import { FeedType } from '../types';
 
 interface GitHubSettings {
@@ -62,30 +61,23 @@ class GitHubService {
       return [];
     }
 
-    try {
-      const response = await fetch(endpoint, {
-        headers: this.buildHeaders()
-      });
+    const response = await fetch(endpoint, {
+      headers: this.buildHeaders()
+    });
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return [];
-        }
-
-        const errorBody = await response.text().catch(() => undefined);
-        throw new Error(
-          `GitHub API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`
-        );
+    if (!response.ok) {
+      if (response.status === 404) {
+        return [];
       }
 
-      const data = await response.json();
-      return Array.isArray(data) ? data : [];
-    } catch (error: any) {
-      Log.error(
-        `GitHubService.fetchFeed failed for ${owner}/${repo} (${feedType}): ${error?.message ?? error}`
+      const errorBody = await response.text().catch(() => undefined);
+      throw new Error(
+        `GitHub API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`
       );
-      return [];
     }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
   }
 }
 

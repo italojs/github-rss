@@ -66,38 +66,16 @@ class S3Service {
     feeds: Record<string, string>
   ): Promise<Record<string, string | null>> {
     const uploadPromises = Object.entries(feeds).map(async ([feedType, rssContent]) => {
-      try {
-        const url = await this.uploadRSSToS3(repositoryName, feedType, rssContent);
-        return [feedType, url] as [string, string | null];
-      } catch (error) {
-        return [feedType, null] as [string, string | null];
-      }
+      const url = await this.uploadRSSToS3(repositoryName, feedType, rssContent);
+      return [feedType, url] as [string, string | null];
     });
     const results = await Promise.all(uploadPromises);
     return Object.fromEntries(results);
   }
 
   getS3RSSUrl(repositoryName: string, feedType: string): string {
+    // Return direct public URL since bucket is now public
     return `https://${this.awsSettings.bucket}.s3.${this.awsSettings.region}.amazonaws.com/rss/${repositoryName}/${feedType}.xml`;
-  }
-
-  async getPresignedRSSUrl(
-    repositoryName: string,
-    feedType: string
-  ): Promise<string | null> {
-    try {
-      const key = `rss/${repositoryName}/${feedType}.xml`;
-      const params = {
-        Bucket: this.awsSettings.bucket,
-        Key: key,
-        Expires: 3600,
-        ResponseContentType: 'application/rss+xml'
-      };
-      const presignedUrl = await this.s3Client.getSignedUrlPromise('getObject', params);
-      return presignedUrl;
-    } catch (error: any) {
-      throw new Error(`Failed to generate presigned URL for ${repositoryName}/${feedType}: ${error.message}`);
-    }
   }
 }
 
