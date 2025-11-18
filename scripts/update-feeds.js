@@ -4,9 +4,6 @@ const cron = require('node-cron');
 // ATENÇÃO: Este script não roda dentro do contexto Meteor, portanto Meteor.settings não está disponível.
 // Use variáveis de ambiente para passar configurações sensíveis (ex: MONGO_URL, GITHUB_TOKEN).
 
-// Import fetch for Node.js compatibility
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-
 // Configuration
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:3001/meteor';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;

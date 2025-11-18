@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import { Meteor } from 'meteor/meteor';
 import { FeedType } from '../types';
 
@@ -8,7 +7,7 @@ interface GitHubSettings {
   perPage: number;
 }
 
-class GitHubService {
+class GitHubClient {
   private readonly settings: GitHubSettings;
 
   constructor() {
@@ -16,8 +15,8 @@ class GitHubService {
   }
 
   private loadSettings(): GitHubSettings {
-    const token = Meteor.settings?.private?.github?.token;
-    const apiUrl = Meteor.settings?.private?.github?.apiUrl ?? 'https://api.github.com';
+    const token = Meteor.settings?.private?.github?.token ?? process.env.GITHUB_TOKEN;
+    const apiUrl = Meteor.settings?.private?.github?.apiUrl ?? process.env.GITHUB_API_URL ?? 'https://api.github.com';
     const perPage = Meteor.settings?.private?.github?.perPage ?? 50;
 
     return {
@@ -55,6 +54,29 @@ class GitHubService {
     return endpoints[feedType] ?? null;
   }
 
+  private buildRepositoryUrl(owner: string, repo: string): string {
+    return `${this.settings.apiUrl}/repos/${owner}/${repo}`;
+  }
+
+  async repositoryExists(owner: string, repo: string): Promise<boolean> {
+    const response = await fetch(this.buildRepositoryUrl(owner, repo), {
+      headers: this.buildHeaders()
+    });
+
+    if (response.status === 404) {
+      return false;
+    }
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => undefined);
+      throw new Error(
+        `GitHub API error: ${response.status} ${response.statusText}${errorBody ? ` - ${errorBody}` : ''}`
+      );
+    }
+
+    return true;
+  }
+
   async fetchFeed(owner: string, repo: string, feedType: FeedType): Promise<any[]> {
     const endpoint = this.buildEndpoint(owner, repo, feedType);
     if (!endpoint) {
@@ -81,4 +103,4 @@ class GitHubService {
   }
 }
 
-export default GitHubService;
+export default GitHubClient;

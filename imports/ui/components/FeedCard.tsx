@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 interface FeedCardProps {
   title: string;
   icon: string;
   isAvailable: boolean;
   isGenerating: boolean;
-  repositoryId?: string;
-  feedType?: string;
-  onGetDirectUrl?: (repositoryId: string, feedType: string) => Promise<{url: string | null, wasRegenerated: boolean}>;
+  feedUrl?: string | null;
 }
 
 const FeedCard: React.FC<FeedCardProps> = ({ 
@@ -15,29 +13,18 @@ const FeedCard: React.FC<FeedCardProps> = ({
   icon, 
   isAvailable, 
   isGenerating,
-  repositoryId,
-  feedType,
-  onGetDirectUrl
+  feedUrl
 }) => {
-  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
-
   const handleViewXML = async () => {
-    if (!isAvailable || !repositoryId || !feedType || !onGetDirectUrl) {
+    if (!isAvailable || !feedUrl) {
       return;
     }
-
-    setIsLoadingUrl(true);
     
     try {
-      const result = await onGetDirectUrl(repositoryId, feedType);
-      if (result && result.url) {
-        window.open(result.url, '_blank');
-      }
+      window.open(feedUrl, '_blank');
     } catch (error) {
       console.error('Error handling XML view:', error);
     }
-    
-    setIsLoadingUrl(false);
   };
 
   return (
@@ -71,13 +58,13 @@ const FeedCard: React.FC<FeedCardProps> = ({
         </div>
       </div>
       
-      {isAvailable && repositoryId && feedType ? (
+      {isAvailable && feedUrl ? (
         <div>
           <button
             onClick={handleViewXML}
-            disabled={isLoadingUrl}
+            disabled={!feedUrl}
             style={{
-              color: isLoadingUrl ? '#95a5a6' : '#3498db',
+              color: '#3498db',
               textDecoration: 'none',
               fontSize: '0.9em',
               fontWeight: '500',
@@ -85,26 +72,22 @@ const FeedCard: React.FC<FeedCardProps> = ({
               alignItems: 'center',
               gap: '6px',
               padding: '6px 12px',
-              background: isLoadingUrl ? '#f5f5f5' : '#f0f8ff',
+              background: '#f0f8ff',
               borderRadius: '6px',
-              border: `1px solid ${isLoadingUrl ? '#ddd' : '#3498db30'}`,
+              border: '1px solid #3498db30',
               transition: 'all 0.2s ease',
-              cursor: isLoadingUrl ? 'not-allowed' : 'pointer'
+              cursor: 'pointer'
             }}
             onMouseEnter={(e) => {
-              if (!isLoadingUrl) {
-                e.currentTarget.style.backgroundColor = '#e6f3ff';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-              }
+              e.currentTarget.style.backgroundColor = '#e6f3ff';
+              e.currentTarget.style.transform = 'translateY(-1px)';
             }}
             onMouseLeave={(e) => {
-              if (!isLoadingUrl) {
-                e.currentTarget.style.backgroundColor = '#f0f8ff';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }
+              e.currentTarget.style.backgroundColor = '#f0f8ff';
+              e.currentTarget.style.transform = 'translateY(0)';
             }}
           >
-            {isLoadingUrl ? '🔗 Loading...' : '📄 View XML Feed'}
+            📄 View XML Feed
           </button>
         </div>
       ) : (

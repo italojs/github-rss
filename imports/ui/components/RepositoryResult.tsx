@@ -1,14 +1,11 @@
 import React from 'react';
-import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import { Repositories } from '../../api/repositories/collection';
+import { GithubRepoCollection } from '../../api/repository';
 import { SearchResult, FeedType } from '../../api/types';
 import FeedCard from './FeedCard';
 
 interface RepositoryResultProps {
   result: SearchResult;
-  onGenerateRSS: (githubUrl: string) => void;
-  onForceGenerate?: (repositoryId: string) => void;
   loading: boolean;
 }
 
@@ -18,8 +15,8 @@ interface FeedTypeDisplay {
   icon: string;
 }
 
-const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateRSS, onForceGenerate, loading }) => {
-  const { found, repository, parsedUrl } = result;
+const RepositoryResult: React.FC<RepositoryResultProps> = ({ result }) => {
+  const { found, repository, parsedUrl, directUrls } = result;
 
   const feedTypes: FeedTypeDisplay[] = [
     { key: 'issues', label: 'Issues', icon: '🐛' },
@@ -30,23 +27,10 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
 
   const liveRepository = useTracker(() => {
     if (!repository?._id) return repository;
-    return Repositories.findOne(repository._id) || repository;
+    return GithubRepoCollection.findOne(repository._id) || repository;
   }, [repository?._id]);
 
   const currentRepo = liveRepository || repository;
-
-  const getDirectUrl = (repositoryId: string, feedType: string): Promise<{url: string | null, wasRegenerated: boolean}> => {
-    return new Promise((resolve) => {
-      Meteor.call('repositories.getFeedsWithCache', repositoryId, (error: any, result: {feeds: Record<FeedType, string>, wasRegenerated: boolean}) => {
-        if (error) {
-          resolve({url: null, wasRegenerated: false});
-        } else {
-          const url = result.feeds[feedType as FeedType] || null;
-          resolve({url, wasRegenerated: result.wasRegenerated});
-        }
-      });
-    });
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -95,41 +79,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
           lineHeight: '1.5'
         }}>
           We don't have RSS feeds for <strong>{parsedUrl.owner}/{parsedUrl.repo}</strong> yet.
-          <br />
-          Click below to generate feeds for Issues, PRs, Discussions, and Releases.
         </p>
-        <button
-          onClick={() => onGenerateRSS(parsedUrl.fullUrl)}
-          disabled={loading}
-          style={{
-            padding: '16px 32px',
-            background: loading 
-              ? '#bdc3c7' 
-              : 'linear-gradient(135deg, #27ae60, #229954)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '12px',
-            fontSize: '16px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontWeight: '600',
-            transition: 'all 0.2s ease',
-            boxShadow: loading ? 'none' : '0 4px 12px rgba(39, 174, 96, 0.3)'
-          }}
-          onMouseEnter={(e) => {
-            if (!loading) {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 6px 20px rgba(39, 174, 96, 0.4)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!loading) {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(39, 174, 96, 0.3)';
-            }
-          }}
-        >
-          {loading ? '⏳ Creating...' : '✨ Generate RSS Feeds'}
-        </button>
       </div>
     );
   }
@@ -169,7 +119,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
               fontSize: '0.95em'
             }}>
               {currentRepo.lastUpdate && (
-                <span>Last updated: {new Date(currentRepo.lastUpdate).toLocaleDateString()} at {new Date(currentRepo.lastUpdate).toLocaleTimeString()}</span>
+                <span>Updated at: {new Date(currentRepo.lastUpdate).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
               )}
             </p>
           </div>
@@ -232,8 +182,9 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
           gap: '16px'
         }}>
           {feedTypes.map(({ key, label, icon }) => {
-            const feedUrl = currentRepo.feeds?.[key as keyof typeof currentRepo.feeds];
-            const isAvailable = !!feedUrl;
+            const feedUrl = directUrls?.[key];
+            const isReady = currentRepo.status === 'ready';
+            const isAvailable = isReady && !!feedUrl;
             const isGenerating = currentRepo.status === 'generating';
             
             return (
@@ -243,9 +194,7 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
                 icon={icon}
                 isAvailable={isAvailable}
                 isGenerating={isGenerating}
-                repositoryId={currentRepo._id}
-                feedType={key}
-                onGetDirectUrl={getDirectUrl}
+                feedUrl={feedUrl}
               />
             );
           })}
@@ -266,33 +215,6 @@ const RepositoryResult: React.FC<RepositoryResultProps> = ({ result, onGenerateR
             Check back in a few minutes to see the results.
           </div>
           
-          {onForceGenerate && currentRepo._id && (
-            <button
-              onClick={() => onForceGenerate(currentRepo._id!)}
-              style={{
-                padding: '10px 20px',
-                background: 'linear-gradient(135deg, #f39c12, #e67e22)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '14px',
-                cursor: 'pointer',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 2px 8px rgba(243, 156, 18, 0.3)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(243, 156, 18, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(243, 156, 18, 0.3)';
-              }}
-            >
-              🚀 Generate Now
-            </button>
-          )}
         </div>
       )}
     </div>

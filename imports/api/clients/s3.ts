@@ -8,7 +8,7 @@ interface AWSSettings {
   bucket: string;
 }
 
-class S3Service {
+class S3Client {
   private s3Client: AWS.S3;
   private awsSettings: AWSSettings;
 
@@ -79,4 +79,4 @@ class S3Service {
   }
 }
 
-export default S3Service;
+export default S3Client;

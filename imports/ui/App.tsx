@@ -48,34 +48,6 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleGenerateRSS = (githubUrl: string) => {
-    setLoading(true);
-    
-    Meteor.call('repositories.create', githubUrl, (error: any) => {
-      setLoading(false);
-      
-      if (error) {
-        alert(`Failed to create repository: ${error.message}`);
-        return;
-      }
-      
-      handleSearch(githubUrl);
-    });
-  };
-
-    const handleForceGenerate = (repositoryId: string) => {
-    Meteor.call('repositories.generateRSS', repositoryId, (error: any) => {
-      if (error) {
-        alert(`Failed to generate RSS: ${error.message}`);
-        return;
-      }
-      
-      if (searchResult?.parsedUrl?.fullUrl) {
-        handleSearch(searchResult.parsedUrl.fullUrl);
-      }
-    });
-  };
-
   return (
     <div style={{ 
       maxWidth: '900px', 
@@ -156,8 +128,6 @@ export const App: React.FC = () => {
       {searchResult && (
         <RepositoryResult 
           result={searchResult}
-          onGenerateRSS={handleGenerateRSS}
-          onForceGenerate={handleForceGenerate}
           loading={loading}
         />
       )}

@@ -1,7 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { WebApp } from 'meteor/webapp';
-import '/imports/api/repositories/collection';
-import '/imports/api/repositories/methods';
+import '../imports/api/repository';
+import '../imports/api/methods';
 
 Meteor.startup(async () => {
   const settings = Meteor.settings.private;
@@ -33,7 +33,6 @@ Meteor.startup(async () => {
     
     // Try to get the XML directly from S3
     try {
-      const fetch = require('node-fetch');
       const awsSettings = Meteor.settings.private?.aws;
       
       if (!awsSettings?.s3Bucket || !awsSettings?.region) {
